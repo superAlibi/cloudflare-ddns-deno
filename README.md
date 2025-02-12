@@ -1,4 +1,4 @@
-# Cloudflare DDNS 定时更新程序
+# Cloudflare ipv6 DDNS 定时更新程序
 
 这是一个使用 Deno 和 TypeScript 编写的 Cloudflare DDNS 定时更新程序。
 
