@@ -64,7 +64,7 @@ export function getConfig(): Config {
   // 解析命令行参数
   const flags = parseArgs(Deno.args, {
     string: ['env'],
-    default: { env: 'development' },
+    default: { env: '' },
   });
 
   // 按优先级从低到高加载配置文件
@@ -74,7 +74,7 @@ export function getConfig(): Config {
     tryReadConfig('.env.local.toml'),         // 本地配置，优先级最高
   ];
 
-  console.log(`正在加载 ${flags.env} 环境的配置...`);
+  console.log(`正在加载环境配置...`);
 
   // 合并配置，后面的配置会覆盖前面的
   return mergeConfigs(configs);

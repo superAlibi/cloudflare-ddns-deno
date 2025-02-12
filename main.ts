@@ -1,4 +1,5 @@
 import { getConfig } from "./config.ts";
+import Cloudflare from "cloudflare";
 
 // 日志记录函数
 async function logToFile(message: string) {
@@ -8,19 +9,17 @@ async function logToFile(message: string) {
   console.log(logMessage.trim());
 }
 
-interface DnsRecord {
-  id: string;
-  name: string;
-  type: string;
-  content: string;
-  proxied: boolean;
-}
 
 export class CloudflareDDNS {
   private config = getConfig();
-  private baseUrl = "https://api.cloudflare.com/client/v4";
+  private client = new Cloudflare({
+    apiToken: this.config.CF_API_TOKEN,
+  });
+  private zoneRecords = new Map<string, Cloudflare.DNS.RecordResponse.AAAARecord[]>();
+
 
   private async getPublicIP(): Promise<string> {
+
     // IPv6服务提供商列表
     const providers = [
       "https://api6.ipify.org?format=json",
@@ -28,79 +27,56 @@ export class CloudflareDDNS {
       "https://api64.ipify.org?format=json",
       "https://ipv6.icanhazip.com"
     ];
+    try {
+      const responses = providers.map(provider =>
+        fetch(provider)
+          .then(async response => {
+            if (!response.ok) throw new Error('请求失败');
+            if (provider.includes('icanhazip.com')) {
+              return (await response.text()).trim();
+            }
+            return (await response.json()).ip;
+          })
+      );
 
-    for (const provider of providers) {
-      try {
-        const response = await fetch(provider);
-        if (!response.ok) continue;
-
-        // 处理纯文本响应
-        if (provider.includes('icanhazip.com')) {
-          const ip = await response.text();
-          return ip.trim();
-        }
-
-        // 处理JSON响应
-        const data = await response.json();
-        return data.ip;
-      } catch (error) {
-        console.log(`使用 ${provider} 获取IP失败: ${(error as Error).message}`);
-        continue;
+      const ip = await Promise.any(responses);
+      return ip;
+    } catch (error) {
+      if (error instanceof AggregateError) {
+        throw new Error('所有 IP 提供商都无法访问');
       }
+      throw error;
     }
-
-    throw new Error('无法获取IPv6地址');
   }
 
   private async getDnsRecords(
-    domain: string,
     zoneId: string,
-  ): Promise<DnsRecord[]> {
-    const response = await fetch(
-      `${this.baseUrl}/zones/${zoneId}/dns_records?type=AAAA&name=${domain}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${this.config.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(`获取DNS记录失败: ${JSON.stringify(data.errors)}`);
+  ): Promise<Cloudflare.DNS.RecordResponse.AAAARecord[]> {
+    if (!this.zoneRecords.has(zoneId)) {
+      const records = await this.client.dns.records.list({
+        zone_id: zoneId,
+        type: 'AAAA',
+      });
+      const result = records.result as Cloudflare.DNS.RecordResponse.AAAARecord[];
+      return result
     }
-
-    return data.result;
+    return this.zoneRecords.get(zoneId)!;
   }
 
   private async updateDnsRecord(
     recordId: string,
-    ip: string,
+    ipv6: string,
     zoneId: string,
     domain: string,
   ): Promise<void> {
-    const response = await fetch(
-      `${this.baseUrl}/zones/${zoneId}/dns_records/${recordId}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Authorization": `Bearer ${this.config.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: ip,
-          name: domain,
-          type: "AAAA",
-          proxied: true,
-        }),
-      },
-    );
+    await this.client.dns.records.update(recordId, {
+      zone_id: zoneId,
+      content: ipv6,
+      name: domain,
+      type: 'AAAA',
+      proxied: true,
+    })
 
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(`更新DNS记录失败: ${JSON.stringify(data.errors)}`);
-    }
   }
 
   private async createDnsRecord(
@@ -108,95 +84,66 @@ export class CloudflareDDNS {
     ip: string,
     zoneId: string,
   ): Promise<void> {
-    const response = await fetch(
-      `${this.baseUrl}/zones/${zoneId}/dns_records`,
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${this.config.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: ip,
-          name: domain,
-          type: "AAAA",
-          proxied: true,
-        }),
-      },
-    );
-
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(`创建DNS记录失败: ${JSON.stringify(data.errors)}`);
-    }
+    await this.client.dns.records.create({
+      zone_id: zoneId,
+      content: ip,
+      name: domain,
+      type: 'AAAA',
+      proxied: true,
+    }).then(() => {
+      logToFile(`域名 ${domain} 的DNS记录创建成功，IP为 ${ip}`);
+    }).catch((error) => {
+      if (error instanceof Error) {
+        throw new Error(`创建DNS记录失败: ${error.message}`);
+      }
+      throw error;
+    })
   }
 
   public async update(): Promise<void> {
     try {
-      console.log("开始更新DDNS...");
+      await logToFile("开始执行定时DNS更新...");
 
       const currentIP = await this.getPublicIP();
       await logToFile(`获取到当前IP: ${currentIP}`);
 
+
       for (const domain of this.config.DOMAINS) {
-        await logToFile(`开始处理域名: ${domain.base_name}`);
-        for (const name of domain.names) {
-          // 处理特殊域名
-          let fullDomain;
-          if (name === '*' || name === '@') {
-            // 对于通配符和根域名，直接使用基本域名
-            fullDomain = domain.base_name;
-          } else {
-            // 对于其他子域名，添加前缀
-            fullDomain = `${name}.${domain.base_name}`;
-          }
-          await logToFile(`处理子域名: ${fullDomain}`);
+        await logToFile(`开始处理域名: ${domain.base_name} `);
+
+
+        // 处理收集到的唯一域名
+        for (const fullDomain of domain.names) {
+
+
+          await logToFile(`处理域名: ${fullDomain} `);
           const zoneId = domain.zone_id;
-          const records = await this.getDnsRecords(fullDomain, zoneId);
 
           try {
-            if (records.length === 0) {
-              await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建新记录...`);
-              try {
-                await this.createDnsRecord(fullDomain, currentIP, zoneId);
-                await logToFile(`域名 ${fullDomain} 的DNS记录创建成功，IP为 ${currentIP}`);
-              } catch (error) {
-                if ((error as Error).message.includes('identical record already exists')) {
-                  await logToFile(`域名 ${fullDomain} 记录已存在，尝试更新...`);
-                  // 重新获取记录
-                  const newRecords = await this.getDnsRecords(fullDomain, zoneId);
-                  if (newRecords.length > 0) {
-                    const record = newRecords[0];
-                    await this.updateDnsRecord(record.id, currentIP, zoneId, record.name);
-                    await logToFile(`域名 ${fullDomain} 的DNS记录更新成功，IP为 ${currentIP}`);
-                  }
-                } else {
-                  throw error;
-                }
-              }
+            const records = await this.getDnsRecords(domain.zone_id);
+
+            if (!records.length) {
+              await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
+              await this.createDnsRecord(fullDomain, currentIP, zoneId);
             } else {
-              const record = records[0];
-              if (record.content !== currentIP) {
-                await logToFile(`域名 ${fullDomain} 的IP需要更新: ${record.content} -> ${currentIP}`);
-                await this.updateDnsRecord(
-                  record.id,
-                  currentIP,
-                  zoneId,
-                  record.name,
-                );
-                await logToFile(`域名 ${fullDomain} 的DNS记录更新成功`);
+              const record = records.at(0);
+              if (record?.id && record?.content !== currentIP) {
+                await logToFile(`域名 ${fullDomain} 的IP需要更新: ${record.content} -> ${currentIP} `);
+                await this.updateDnsRecord(record.id, currentIP, zoneId, fullDomain);
+                await logToFile(`域名 ${fullDomain} 的IP已更新为 ${currentIP} `);
               } else {
-                await logToFile(`域名 ${fullDomain} 的IP未变更，保持为 ${currentIP}`);
+                await logToFile(`域名 ${fullDomain} 的IP未变更，保持为 ${currentIP} `);
               }
             }
           } catch (error) {
-            console.error(`处理域名 ${fullDomain} 时出错: ${(error as Error).message}`);
-            throw error;
+            // 记录错误但继续处理其他域名
+            await logToFile(`处理域名 ${fullDomain} 时出错: ${(error as Error).message} `);
+            continue;
           }
         }
       }
     } catch (error) {
-      console.error("更新DDNS时发生错误:", (error as Error).message);
+      await logToFile(`定时DNS更新失败: ${(error as Error).message} `);
       throw error;
     }
   }
@@ -221,7 +168,7 @@ if (import.meta.main) {
       await ddns.update();
       await logToFile('定时DNS更新成功');
     } catch (error) {
-      await logToFile(`定时DNS更新失败: ${(error as Error).message}`);
+      await logToFile(`定时DNS更新失败: ${(error as Error).message} `);
     }
   });
 

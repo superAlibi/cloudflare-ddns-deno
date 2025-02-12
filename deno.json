@@ -5,6 +5,7 @@
   "imports": {
     "@std/assert": "jsr:@std/assert@1",
     "@std/cli": "jsr:@std/cli@^1.0.12",
-    "@std/toml": "jsr:@std/toml@^1.0.2"
+    "@std/toml": "jsr:@std/toml@^1.0.2",
+    "cloudflare": "npm:cloudflare@^4.1.0"
   }
 }
