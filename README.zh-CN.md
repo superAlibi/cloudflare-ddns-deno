@@ -15,9 +15,13 @@
 2. 配置环境变量或创建 `.env.toml` 文件:
 
 ```
-CF_API_TOKEN=你的Cloudflare_API_Token
-ZONE_ID=你的域名Zone_ID
-DOMAIN=需要更新的域名
+CF_API_TOKEN = "你的Cloudflare_API_Token"
+
+[[DOMAINS]]
+zone_id = "你的域名Zone_ID"
+base_name = "example.com"
+names = ["@", "www"]
+iface_name = "eth0"  # 可选: 指定网络接口
 ```
 
 3. 运行程序:
