@@ -1,6 +1,9 @@
 # Cloudflare DDNS for IPv6
 
-A lightweight and efficient Dynamic DNS (DDNS) client written in Deno for updating Cloudflare DNS records with IPv6 addresses. This tool automatically detects your network interface's IPv6 address and updates specified Cloudflare DNS records accordingly.
+A lightweight and efficient Dynamic DNS (DDNS) client written in Deno for
+updating Cloudflare DNS records with IPv6 addresses. This tool automatically
+detects your network interface's IPv6 address and updates specified Cloudflare
+DNS records accordingly.
 
 ## Features
 
@@ -34,7 +37,7 @@ iface_name = "eth0"  # Optional: Specify network interface
 ## Usage
 
 ```bash
-deno run --allow-net --allow-read --allow-write main.ts
+deno run --allow-net --allow-read --allow-write --unstable-cron --allow-env --allow-sys main.ts
 ```
 
 ## License
