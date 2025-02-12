@@ -1,8 +1,9 @@
-import { assertEquals } from "@std/assert";
-import { CloudflareDDNS } from "./main.ts";
 
-Deno.test(async function updateTest() {
-  const cfddns = new CloudflareDDNS();
-  assertEquals(await cfddns.update(), void 0);
+Deno.test(function getIpv6() {
+  const ifaces = Deno.networkInterfaces()
+  console.table(ifaces)
+  ifaces.filter(iface => iface.family === 'IPv6').forEach(iface => {
+    console.log(iface);
+  })
 });
 

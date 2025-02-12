@@ -5,6 +5,7 @@ export interface DomainInfo {
   zone_id: string;
   names: string[];
   base_name: string;
+  iface_name?: string;
 }
 
 export interface Config {

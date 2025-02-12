@@ -16,37 +16,17 @@ export class CloudflareDDNS {
     apiToken: this.config.CF_API_TOKEN,
   });
   private zoneRecords = new Map<string, Cloudflare.DNS.RecordResponse.AAAARecord[]>();
+  private ifaceToAddress = new Map<string, string>();
+  get ifaceAddress() {
+    return this.ifaceToAddress
+  }
+  constructor() {
+    const ifaces = Deno.networkInterfaces()
+    const ipv6 = ifaces
+      .filter(iface => (iface.family === 'IPv6') && iface.address !== ("::1") && !iface.address.startsWith("fe80"))
+      .map<[string, string]>(iface => [iface.name, iface.address])
 
-
-  private async getPublicIP(): Promise<string> {
-
-    // IPv6服务提供商列表
-    const providers = [
-      "https://api6.ipify.org?format=json",
-      "https://v6.ident.me/.json",
-      "https://api64.ipify.org?format=json",
-      "https://ipv6.icanhazip.com"
-    ];
-    try {
-      const responses = providers.map(provider =>
-        fetch(provider)
-          .then(async response => {
-            if (!response.ok) throw new Error('请求失败');
-            if (provider.includes('icanhazip.com')) {
-              return (await response.text()).trim();
-            }
-            return (await response.json()).ip;
-          })
-      );
-
-      const ip = await Promise.any(responses);
-      return ip;
-    } catch (error) {
-      if (error instanceof AggregateError) {
-        throw new Error('所有 IP 提供商都无法访问');
-      }
-      throw error;
-    }
+    this.ifaceToAddress = new Map(ipv6)
   }
 
   private async getDnsRecords(
@@ -103,25 +83,27 @@ export class CloudflareDDNS {
   public async update(): Promise<void> {
     try {
 
-      const currentIP = await this.getPublicIP();
-      await logToFile(`获取到当前IP: ${currentIP}`);
-
-
       for (const domain of this.config.DOMAINS) {
-        await logToFile(`开始处理域名: ${domain.base_name} `);
 
+        await logToFile(`开始处理域名: ${domain.base_name} 与接口 ${domain.iface_name} 绑定`);
+
+        const currentIP = domain.iface_name ? this.ifaceToAddress.get(domain.iface_name) : Array.from(this.ifaceToAddress.values())
+        if (!currentIP || !currentIP.length) {
+          await logToFile(domain.iface_name ? `接口 ${domain.iface_name} 未找到IP，跳过处理` : `未找到IP，跳过处理`);
+          continue;
+        }
         const records = await this.getDnsRecords(domain.zone_id);
         // 处理收集到的唯一域名
         for (const subDomain of domain.names) {
 
           const fullDomain = `${subDomain}.${domain.base_name}`;
 
-          await logToFile(`处理域名: ${fullDomain} `);
+          await logToFile(`处理域名: ${fullDomain} 与网卡接口 ${domain.iface_name} 绑定`);
 
           try {
             if (!records.length) {
               await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
-              await this.createDnsRecord(subDomain, currentIP, domain.zone_id);
+              await this.createDnsRecord(subDomain, Array.isArray(currentIP) ? currentIP[0] : currentIP, domain.zone_id);
             } else {
               const record = records.find(i => {
                 if (subDomain === '@') {
@@ -129,12 +111,15 @@ export class CloudflareDDNS {
                 }
                 return i.name === fullDomain
               })
+              // 当是数组时,至少有一个ip
+              const chooseIP = Array.isArray(currentIP) ? currentIP.at(0)! : currentIP;
+
               if (!record) {
                 await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
-                await this.createDnsRecord(subDomain, currentIP, domain.zone_id);
+                await this.createDnsRecord(subDomain, chooseIP, domain.zone_id);
               } else if (record.content !== currentIP) {
                 await logToFile(`域名 ${fullDomain} 的IP需要更新: ${record.content} -> ${currentIP} `);
-                await this.updateDnsRecord(record.id, currentIP, domain.zone_id, subDomain);
+                await this.updateDnsRecord(record.id, chooseIP, domain.zone_id, subDomain);
                 await logToFile(`域名 ${fullDomain} 的IP已更新为 ${currentIP} `);
               } else {
                 await logToFile(`域名 ${fullDomain} 的IP未变更，保持为 ${currentIP} `);

@@ -23,7 +23,7 @@ DOMAIN=需要更新的域名
 3. 运行程序:
 
 ```bash
-deno run --allow-read --allow-write --unstable-cron --allow-net --allow-env main.ts
+deno run --allow-net --allow-read --allow-write --unstable-cron --allow-env --allow-sys main.ts
 ```
 
 ## 配置说明
