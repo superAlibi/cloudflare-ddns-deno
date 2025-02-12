@@ -102,7 +102,6 @@ export class CloudflareDDNS {
 
   public async update(): Promise<void> {
     try {
-      await logToFile("开始执行定时DNS更新...");
 
       const currentIP = await this.getPublicIP();
       await logToFile(`获取到当前IP: ${currentIP}`);
@@ -111,25 +110,31 @@ export class CloudflareDDNS {
       for (const domain of this.config.DOMAINS) {
         await logToFile(`开始处理域名: ${domain.base_name} `);
 
-
+        const records = await this.getDnsRecords(domain.zone_id);
         // 处理收集到的唯一域名
-        for (const fullDomain of domain.names) {
+        for (const subDomain of domain.names) {
 
+          const fullDomain = `${subDomain}.${domain.base_name}`;
 
           await logToFile(`处理域名: ${fullDomain} `);
-          const zoneId = domain.zone_id;
 
           try {
-            const records = await this.getDnsRecords(domain.zone_id);
-
             if (!records.length) {
               await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
-              await this.createDnsRecord(fullDomain, currentIP, zoneId);
+              await this.createDnsRecord(subDomain, currentIP, domain.zone_id);
             } else {
-              const record = records.at(0);
-              if (record?.id && record?.content !== currentIP) {
+              const record = records.find(i => {
+                if (subDomain === '@') {
+                  return i.name === domain.base_name
+                }
+                return i.name === fullDomain
+              })
+              if (!record) {
+                await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
+                await this.createDnsRecord(subDomain, currentIP, domain.zone_id);
+              } else if (record.content !== currentIP) {
                 await logToFile(`域名 ${fullDomain} 的IP需要更新: ${record.content} -> ${currentIP} `);
-                await this.updateDnsRecord(record.id, currentIP, zoneId, fullDomain);
+                await this.updateDnsRecord(record.id, currentIP, domain.zone_id, subDomain);
                 await logToFile(`域名 ${fullDomain} 的IP已更新为 ${currentIP} `);
               } else {
                 await logToFile(`域名 ${fullDomain} 的IP未变更，保持为 ${currentIP} `);
@@ -152,12 +157,13 @@ export class CloudflareDDNS {
 
 // 运行程序
 if (import.meta.main) {
+
   const ddns = new CloudflareDDNS();
   // 每5分钟执行一次
   console.log('开始设置定时任务....');
   Deno.cron("ddns-cron-task", {
     minute: {
-      every: 5
+      every: 1
     },
   }, {
     // 立即执行一次
@@ -172,5 +178,10 @@ if (import.meta.main) {
     }
   });
 
+  Deno.addSignalListener('SIGINT', async () => {
+    await logToFile('收到SIGINT信号，开始关闭定时任务...');
 
+    await logToFile('定时任务已关闭');
+    Deno.exit(0);
+  })
 }
