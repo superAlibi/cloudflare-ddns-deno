@@ -5,8 +5,7 @@ import Cloudflare from "cloudflare";
 async function logToFile(message: string) {
   const now = new Date();
   const logMessage = `[${now.toISOString()}] ${message}\n`;
-  await Deno.writeTextFile("ddns.log", logMessage, { append: true });
-  console.log(logMessage.trim());
+  await Deno.writeTextFile(`./logs/cloudflare-ddns-${now.toISOString().split('T').at(0)}.log`, logMessage, { append: true });
 }
 
 
@@ -148,7 +147,7 @@ if (import.meta.main) {
   console.log('开始设置定时任务....');
   Deno.cron("ddns-cron-task", {
     minute: {
-      every: 1
+      every: 10
     },
   }, {
     // 立即执行一次

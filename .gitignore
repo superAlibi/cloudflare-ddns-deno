@@ -6,3 +6,5 @@
 
 # 日志文件
 ddns.log
+cloudflare-ddns.service
+cloudflare-ddns
