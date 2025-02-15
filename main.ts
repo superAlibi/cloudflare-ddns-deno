@@ -2,10 +2,11 @@ import { getConfig } from "./config.ts";
 import Cloudflare from "cloudflare";
 
 // 日志记录函数
-async function logToFile(message: string) {
+async function logToFile(message: string, baseDir: string = getConfig().logs_dir) {
   const now = new Date();
   const logMessage = `[${now.toISOString()}] ${message}\n`;
-  await Deno.writeTextFile(`./logs/cloudflare-ddns-${now.toISOString().split('T').at(0)}.log`, logMessage, { append: true });
+  Deno.mkdirSync(baseDir, { recursive: true });
+  await Deno.writeTextFile(`${baseDir}/cloudflare-ddns-${now.toISOString().split('T').at(0)}.log`, logMessage, { create: true, append: true });
 }
 
 
@@ -147,7 +148,7 @@ if (import.meta.main) {
   console.log('开始设置定时任务....');
   Deno.cron("ddns-cron-task", {
     minute: {
-      every: 10
+      every: 1
     },
   }, {
     // 立即执行一次
@@ -161,11 +162,4 @@ if (import.meta.main) {
       await logToFile(`定时DNS更新失败: ${(error as Error).message} `);
     }
   });
-
-  Deno.addSignalListener('SIGINT', async () => {
-    await logToFile('收到SIGINT信号，开始关闭定时任务...');
-
-    await logToFile('定时任务已关闭');
-    Deno.exit(0);
-  })
 }
