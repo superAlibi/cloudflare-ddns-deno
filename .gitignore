@@ -5,6 +5,6 @@
 .DS_Store
 
 # 日志文件
-ddns.log
+logs/
 cloudflare-ddns.service
 cloudflare-ddns

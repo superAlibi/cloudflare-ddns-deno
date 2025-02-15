@@ -1,33 +1,31 @@
-import { getConfig } from "./config.ts";
+import { getConfig, type Config } from "./config.ts";
 import Cloudflare from "cloudflare";
 
-// 日志记录函数
-async function logToFile(message: string, baseDir: string = getConfig().logs_dir) {
-  const now = new Date();
-  const logMessage = `[${now.toISOString()}] ${message}\n`;
-  Deno.mkdirSync(baseDir, { recursive: true });
-  await Deno.writeTextFile(`${baseDir}/cloudflare-ddns-${now.toISOString().split('T').at(0)}.log`, logMessage, { create: true, append: true });
-}
 
 
 export class CloudflareDDNS {
-  private config = getConfig();
-  private client = new Cloudflare({
-    apiToken: this.config.CF_API_TOKEN,
-  });
+  private config: Config;
+  private client: Cloudflare
   private zoneRecords = new Map<string, Cloudflare.DNS.RecordResponse.AAAARecord[]>();
   private ifaceToAddress = new Map<string, string>();
-  get ifaceAddress() {
-    return this.ifaceToAddress
-  }
-  constructor() {
+  constructor(config: Config) {
+    this.config = config
     const ifaces = Deno.networkInterfaces()
     const ipv6 = ifaces
       .filter(iface => (iface.family === 'IPv6') && iface.address !== ("::1") && !iface.address.startsWith("fe80"))
       .map<[string, string]>(iface => [iface.name, iface.address])
-
+    this.client = new Cloudflare({
+      apiToken: this.config.CF_API_TOKEN,
+    });
     this.ifaceToAddress = new Map(ipv6)
   }
+  log(message: string) {
+    const now = new Date();
+    const logMessage = `[${now.toISOString()}] ${message}\n`;
+    Deno.mkdirSync(this.config.logs_dir, { recursive: true });
+    Deno.writeTextFile(`${this.config.logs_dir}/cloudflare-ddns-${now.toISOString().split('T').at(0)}.log`, logMessage, { create: true, append: true });
+  }
+
 
   private async getDnsRecords(
     zoneId: string,
@@ -71,7 +69,7 @@ export class CloudflareDDNS {
       type: 'AAAA',
       proxied: true,
     }).then(() => {
-      logToFile(`域名 ${domain} 的DNS记录创建成功，IP为 ${ip}`);
+      this.log(`域名 ${domain} 的DNS记录创建成功，IP为 ${ip}`);
     }).catch((error) => {
       if (error instanceof Error) {
         throw new Error(`创建DNS记录失败: ${error.message}`);
@@ -85,11 +83,11 @@ export class CloudflareDDNS {
 
       for (const domain of this.config.DOMAINS) {
 
-        await logToFile(`开始处理域名: ${domain.base_name} 与接口 ${domain.iface_name} 绑定`);
+        this.log(`开始处理域名: ${domain.base_name} 与接口 ${domain.iface_name} 绑定`);
 
         const currentIP = domain.iface_name ? this.ifaceToAddress.get(domain.iface_name) : Array.from(this.ifaceToAddress.values())
         if (!currentIP || !currentIP.length) {
-          await logToFile(domain.iface_name ? `接口 ${domain.iface_name} 未找到IP，跳过处理` : `未找到IP，跳过处理`);
+          this.log(domain.iface_name ? `接口 ${domain.iface_name} 未找到IP，跳过处理` : `未找到IP，跳过处理`);
           continue;
         }
         const records = await this.getDnsRecords(domain.zone_id);
@@ -98,11 +96,11 @@ export class CloudflareDDNS {
 
           const fullDomain = `${subDomain}.${domain.base_name}`;
 
-          await logToFile(`处理域名: ${fullDomain} 与网卡接口 ${domain.iface_name} 绑定`);
+          this.log(`处理域名: ${fullDomain} 与网卡接口 ${domain.iface_name} 绑定`);
 
           try {
             if (!records.length) {
-              await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
+              this.log(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
               await this.createDnsRecord(subDomain, Array.isArray(currentIP) ? currentIP[0] : currentIP, domain.zone_id);
             } else {
               const record = records.find(i => {
@@ -115,25 +113,25 @@ export class CloudflareDDNS {
               const chooseIP = Array.isArray(currentIP) ? currentIP.at(0)! : currentIP;
 
               if (!record) {
-                await logToFile(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
+                this.log(`域名 ${fullDomain} 未找到DNS记录，准备创建...`);
                 await this.createDnsRecord(subDomain, chooseIP, domain.zone_id);
               } else if (record.content !== currentIP) {
-                await logToFile(`域名 ${fullDomain} 的IP需要更新: ${record.content} -> ${currentIP} `);
+                this.log(`域名 ${fullDomain} 的IP需要更新: ${record.content} -> ${currentIP} `);
                 await this.updateDnsRecord(record.id, chooseIP, domain.zone_id, subDomain);
-                await logToFile(`域名 ${fullDomain} 的IP已更新为 ${currentIP} `);
+                this.log(`域名 ${fullDomain} 的IP已更新为 ${currentIP} `);
               } else {
-                await logToFile(`域名 ${fullDomain} 的IP未变更，保持为 ${currentIP} `);
+                this.log(`域名 ${fullDomain} 的IP未变更，保持为 ${currentIP} `);
               }
             }
           } catch (error) {
             // 记录错误但继续处理其他域名
-            await logToFile(`处理域名 ${fullDomain} 时出错: ${(error as Error).message} `);
+            this.log(`处理域名 ${fullDomain} 时出错: ${(error as Error).message} `);
             continue;
           }
         }
       }
     } catch (error) {
-      await logToFile(`定时DNS更新失败: ${(error as Error).message} `);
+      this.log(`定时DNS更新失败: ${(error as Error).message} `);
       throw error;
     }
   }
@@ -142,24 +140,24 @@ export class CloudflareDDNS {
 
 // 运行程序
 if (import.meta.main) {
-
-  const ddns = new CloudflareDDNS();
+  const config = getConfig()
+  const ddns = new CloudflareDDNS(config);
   // 每5分钟执行一次
   console.log('开始设置定时任务....');
   Deno.cron("ddns-cron-task", {
     minute: {
-      every: 1
+      every: 10
     },
   }, {
     // 立即执行一次
     backoffSchedule: [0]
   }, async () => {
-    await logToFile('开始执行定时DNS更新...');
+    ddns.log('开始执行定时DNS更新...');
     try {
       await ddns.update();
-      await logToFile('定时DNS更新成功');
+      ddns.log('定时DNS更新成功');
     } catch (error) {
-      await logToFile(`定时DNS更新失败: ${(error as Error).message} `);
+      ddns.log(`定时DNS更新失败: ${(error as Error).message} `);
     }
   });
 }
