@@ -142,6 +142,7 @@ export class CloudflareDDNS {
 if (import.meta.main) {
   const config = getConfig()
   const ddns = new CloudflareDDNS(config);
+  await ddns.update();
   // 每5分钟执行一次
   console.log('开始设置定时任务....');
   Deno.cron("ddns-cron-task", {
