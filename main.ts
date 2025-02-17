@@ -2,22 +2,24 @@ import { getConfig, type Config } from "./config.ts";
 import Cloudflare from "cloudflare";
 
 
+function getIpv6() {
+  const ifaces = Deno.networkInterfaces()
+
+  const ipv6 = ifaces
+    .filter(iface => (iface.family === 'IPv6') && iface.address !== ("::1") && !iface.address.startsWith("fe80"))
+    .map<[string, string]>(iface => [iface.name, iface.address])
+  return new Map(ipv6)
+}
 
 export class CloudflareDDNS {
   private config: Config;
   private client: Cloudflare
   private zoneRecords = new Map<string, Cloudflare.DNS.RecordResponse.AAAARecord[]>();
-  private ifaceToAddress = new Map<string, string>();
   constructor(config: Config) {
     this.config = config
-    const ifaces = Deno.networkInterfaces()
-    const ipv6 = ifaces
-      .filter(iface => (iface.family === 'IPv6') && iface.address !== ("::1") && !iface.address.startsWith("fe80"))
-      .map<[string, string]>(iface => [iface.name, iface.address])
     this.client = new Cloudflare({
       apiToken: this.config.CF_API_TOKEN,
     });
-    this.ifaceToAddress = new Map(ipv6)
   }
   log(message: string) {
     const now = new Date();
@@ -84,8 +86,8 @@ export class CloudflareDDNS {
       for (const domain of this.config.DOMAINS) {
 
         this.log(`开始处理域名: ${domain.base_name} 与接口 ${domain.iface_name} 绑定`);
-
-        const currentIP = domain.iface_name ? this.ifaceToAddress.get(domain.iface_name) : Array.from(this.ifaceToAddress.values())
+        const ifceToIpv6 = getIpv6()
+        const currentIP = domain.iface_name ? ifceToIpv6.get(domain.iface_name) : Array.from(ifceToIpv6.values())
         if (!currentIP || !currentIP.length) {
           this.log(domain.iface_name ? `接口 ${domain.iface_name} 未找到IP，跳过处理` : `未找到IP，跳过处理`);
           continue;
