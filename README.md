@@ -37,7 +37,7 @@ iface_name = "eth0"  # Optional: Specify network interface
 ## Usage
 
 ```bash
-deno run --allow-net --allow-read --allow-write --unstable-cron --allow-env --allow-sys main.ts
+deno run --unstable-cron --unstable-temporal --allow-net --allow-read --allow-write  --allow-env --allow-sys main.ts
 ```
 
 ## License

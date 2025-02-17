@@ -21,3 +21,25 @@ Deno.test(function getIpv6FormNodeOS() {
   const infos = NodeOS.networkInterfaces()
   console.log(infos)
 })
+Deno.test('test temporal', function temporal() {
+
+  // 获取当前时间
+  const now = Temporal.Now.plainDateISO();
+
+  // 使用 Intl.DateTimeFormat 格式化日期
+  const formatter = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+    formatMatcher: 'basic'
+  });
+
+  // 格式化后的日期字符串
+  const formattedDate = formatter.format(now);
+
+  console.log(formattedDate);
+})  

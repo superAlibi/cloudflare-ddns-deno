@@ -27,7 +27,7 @@ iface_name = "eth0"  # 可选: 指定网络接口
 3. 运行程序:
 
 ```bash
-deno run --allow-net --allow-read --allow-write --unstable-cron --allow-env --allow-sys main.ts
+deno run --unstable-cron --unstable-temporal --allow-net --allow-read --allow-write  --allow-env --allow-sys main.ts
 ```
 
 ## 配置说明

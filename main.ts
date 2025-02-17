@@ -11,6 +11,16 @@ function getIpv6() {
   return new Map(ipv6)
 }
 
+
+const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  timeZoneName: 'short'
+});
 export class CloudflareDDNS {
   private config: Config;
   private client: Cloudflare
@@ -22,10 +32,14 @@ export class CloudflareDDNS {
     });
   }
   log(message: string) {
-    const now = new Date();
-    const logMessage = `[${now.toISOString()}] ${message}\n`;
+
+    // 使用 Intl.DateTimeFormat 格式化日期
+    // 格式化后的日期字符串
+    const formattedDate = dateTimeFormatter.format(Temporal.Now.plainDateISO()).replaceAll(/\//g, '-');
+    const messageWithDate = `[${dateTimeFormatter.format(Temporal.Now.zonedDateTimeISO())}] ${message}\n`;
+
     Deno.mkdirSync(this.config.logs_dir, { recursive: true });
-    Deno.writeTextFile(`${this.config.logs_dir}/cloudflare-ddns-${now.toISOString().split('T').at(0)}.log`, logMessage, { create: true, append: true });
+    Deno.writeTextFile(`${this.config.logs_dir}/cloudflare-ddns-${formattedDate}.log`, messageWithDate, { create: true, append: true });
   }
 
 
