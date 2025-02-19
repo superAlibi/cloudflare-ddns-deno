@@ -1,12 +1,12 @@
 import { getConfig, type Config } from "./config.ts";
 import Cloudflare from "cloudflare";
 
-
+const notStart = ['::1', 'fe80:', 'fdfb:']
 function getIpv6() {
   const ifaces = Deno.networkInterfaces()
 
   const ipv6 = ifaces
-    .filter(iface => (iface.family === 'IPv6') && iface.address !== ("::1") && !iface.address.startsWith("fe80"))
+    .filter(iface => (iface.family === 'IPv6') && !notStart.some(start => iface.address.startsWith(start)))
     .map<[string, string]>(iface => [iface.name, iface.address])
   return new Map(ipv6)
 }
