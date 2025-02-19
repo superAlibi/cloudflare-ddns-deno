@@ -1,7 +1,7 @@
 import { getConfig, type Config } from "./config.ts";
 import Cloudflare from "cloudflare";
 
-const notStart = ['::1', 'fe80:', 'fdfb:']
+const notStart = ['::1', 'fe80:', 'fd']
 function getIpv6() {
   const ifaces = Deno.networkInterfaces()
 
